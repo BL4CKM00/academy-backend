@@ -1,0 +1,1068 @@
+
+==================================================
+ARQUIVO: app/database/database.py
+==================================================
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+engine = create_engine(DATABASE_URL)
+
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
+)
+
+Base = declarative_base()
+
+==================================================
+ARQUIVO: app/database/dependencies.py
+==================================================
+from app.database.database import SessionLocal
+
+
+def get_db():
+    db = SessionLocal()
+
+    try:
+        yield db
+
+    finally:
+        db.close()
+
+==================================================
+ARQUIVO: app/main.py
+==================================================
+from fastapi import FastAPI
+
+from app.database.database import engine
+from app.database.database import Base
+
+from app.models.aluno_model import Aluno
+from app.models.pagamento_model import Pagamento
+
+from app.routes.aluno_routes import router as aluno_router
+from app.routes.pagamento_routes import router as pagamento_router
+from app.routes.relatorio_routes import (
+    router as relatorio_router
+)
+from app.routes.dashboard_routes import (
+    router as dashboard_router
+)
+
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(
+    title="Academy System API"
+)
+
+app.include_router(aluno_router)
+app.include_router(pagamento_router)
+app.include_router(dashboard_router)
+app.include_router(relatorio_router)
+
+
+@app.get("/")
+def home():
+    return {
+        "message": "Sistema Academia API"
+    }
+
+==================================================
+ARQUIVO: app/dao/pagamento_dao.py
+==================================================
+from datetime import date
+
+from sqlalchemy.orm import Session
+
+from app.models.pagamento_model import Pagamento
+from app.models.aluno_model import Aluno
+
+
+class PagamentoDAO:
+
+    @staticmethod
+    def criar(
+        db: Session,
+        aluno_id: int,
+        competencia: str,
+        data_vencimento: date
+    ):
+
+        pagamento = Pagamento(
+            aluno_id=aluno_id,
+            competencia=competencia,
+            data_vencimento=data_vencimento
+        )
+
+        db.add(pagamento)
+        db.commit()
+        db.refresh(pagamento)
+
+        return pagamento
+    
+    @staticmethod
+    def listar(
+        db: Session
+    ):
+
+        return db.query(Pagamento).all()
+
+    @staticmethod
+    def marcar_como_pago(
+        db: Session,
+        pagamento_id: int
+    ):
+
+        pagamento = (
+            db.query(Pagamento)
+            .filter(Pagamento.id == pagamento_id)
+            .first()
+        )
+
+        if not pagamento:
+            return None
+
+        pagamento.pago = True
+        pagamento.data_pagamento = date.today()
+
+        db.commit()
+        db.refresh(pagamento)
+
+        return pagamento
+    
+    @staticmethod
+    def listar_com_alunos(
+        db: Session
+    ):
+
+        return (
+            db.query(Pagamento)
+            .join(Aluno)
+            .all()
+        )
+
+    @staticmethod
+    def buscar_por_aluno_competencia(
+        db: Session,
+        aluno_id: int,
+        competencia: str
+    ):
+
+        return (
+            db.query(Pagamento)
+            .filter(
+                Pagamento.aluno_id == aluno_id,
+                Pagamento.competencia == competencia
+            )
+            .first()
+        )
+    
+    @staticmethod
+    def buscar_ultimo_pagamento(
+        db: Session,
+        aluno_id: int
+    ):
+
+        return (
+            db.query(Pagamento)
+            .filter(
+                Pagamento.aluno_id == aluno_id
+            )
+            .order_by(
+                Pagamento.data_vencimento.desc()
+            )
+            .first()
+        )
+    
+    @staticmethod
+    def buscar_pendente_por_aluno(
+        db: Session,
+        aluno_id: int
+    ):
+
+        return (
+            db.query(Pagamento)
+            .filter(
+                Pagamento.aluno_id == aluno_id,
+                Pagamento.pago.is_(False)
+            )
+            .first()
+        )
+    
+    @staticmethod
+    def pagar(
+        db: Session,
+        pagamento: Pagamento
+    ):
+
+        pagamento.pago = True
+        pagamento.data_pagamento = date.today()
+
+        db.commit()
+        db.refresh(pagamento)
+
+        return pagamento
+
+==================================================
+ARQUIVO: app/dao/dashboard_dao.py
+==================================================
+from datetime import date
+
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+
+from app.models.aluno_model import Aluno
+from app.models.pagamento_model import Pagamento
+
+
+class DashboardDAO:
+
+    @staticmethod
+    def obter_indicadores(db: Session):
+
+        hoje = date.today()
+
+        alunos_ativos = (
+            db.query(Aluno)
+            .count()
+        )
+
+        alunos_diario = (
+            db.query(Aluno)
+            .filter(Aluno.tipo_plano == "DIARIO")
+            .count()
+        )
+
+        alunos_mensal = (
+            db.query(Aluno)
+            .filter(Aluno.tipo_plano == "MENSAL")
+            .count()
+        )
+
+        alunos_trimestral = (
+            db.query(Aluno)
+            .filter(Aluno.tipo_plano == "TRIMESTRAL")
+            .count()
+        )
+
+        alunos_semestral = (
+            db.query(Aluno)
+            .filter(Aluno.tipo_plano == "SEMESTRAL")
+            .count()
+        )
+
+        alunos_anual = (
+            db.query(Aluno)
+            .filter(Aluno.tipo_plano == "ANUAL")
+            .count()
+        )
+
+        mensalidades_abertas = (
+            db.query(Pagamento)
+            .filter(Pagamento.pago.is_(False))
+            .count()
+        )
+
+        mensalidades_atrasadas = (
+            db.query(Pagamento)
+            .filter(
+                Pagamento.pago.is_(False),
+                Pagamento.data_vencimento < hoje
+            )
+            .count()
+        )
+
+        vencendo_hoje = (
+            db.query(Pagamento)
+            .filter(
+                Pagamento.pago.is_(False),
+                Pagamento.data_vencimento == hoje
+            )
+            .count()
+        )
+
+        receita_recebida = (
+            db.query(
+                func.sum(Aluno.mensalidade)
+            )
+            .join(
+                Pagamento,
+                Pagamento.aluno_id == Aluno.id
+            )
+            .filter(
+                Pagamento.pago.is_(True)
+            )
+            .scalar()
+        ) or 0
+
+        receita_prevista = (
+            db.query(
+                func.sum(Aluno.mensalidade)
+            )
+            .scalar()
+        ) or 0
+
+        return {
+            "alunos_ativos": alunos_ativos,
+            "mensalidades_abertas": mensalidades_abertas,
+            "mensalidades_atrasadas": mensalidades_atrasadas,
+            "vencendo_hoje": vencendo_hoje,
+            "receita_recebida": receita_recebida,
+
+            "receita_prevista": receita_prevista,
+
+            "alunos_diario": alunos_diario,
+            "alunos_mensal": alunos_mensal,
+            "alunos_trimestral": alunos_trimestral,
+            "alunos_semestral": alunos_semestral,
+            "alunos_anual": alunos_anual
+        }
+
+==================================================
+ARQUIVO: app/dao/aluno_dao.py
+==================================================
+from sqlalchemy.orm import Session
+from sqlalchemy import or_
+
+from app.models.aluno_model import Aluno
+from app.schemas.aluno_schema import AlunoCreate
+
+
+class AlunoDAO:
+
+    @staticmethod
+    def criar(db: Session, aluno: AlunoCreate):
+        codigo = AlunoDAO.gerar_codigo(db)
+
+        novo_aluno = Aluno(
+            codigo=codigo,
+            nome=aluno.nome,
+            cpf=aluno.cpf,
+            telefone=aluno.telefone,
+            email=aluno.email,
+            data_inscricao=aluno.data_inscricao,
+            mensalidade=aluno.mensalidade,
+            tipo_plano=aluno.tipo_plano
+        )
+        db.add(novo_aluno)
+        db.commit()
+        db.refresh(novo_aluno)
+
+        return novo_aluno
+
+    @staticmethod
+    def listar(db: Session):
+
+        return db.query(Aluno).all()
+    
+    @staticmethod
+    def buscar_por_id(
+        db: Session,
+        aluno_id: int
+    ):
+
+        return (
+            db.query(Aluno)
+            .filter(Aluno.id == aluno_id)
+            .first()
+        )
+    
+    @staticmethod
+    def buscar_unico(
+        db: Session,
+        termo: str
+    ):
+
+        return (
+            db.query(Aluno)
+            .filter(
+                or_(
+                    Aluno.codigo == termo,
+                    Aluno.cpf == termo,
+                    Aluno.telefone == termo
+                )
+            )
+            .first()
+        )
+
+    @staticmethod
+    def buscar(
+        db: Session,
+        termo: str
+    ):
+
+        return (
+            db.query(Aluno)
+            .filter(
+                or_(
+                    Aluno.codigo == termo,
+                    Aluno.cpf == termo,
+                    Aluno.telefone == termo,
+                    Aluno.nome.ilike(f"%{termo}%")
+                )
+            )
+            .all()
+        )
+    
+    @staticmethod
+    def atualizar(
+        db: Session,
+        codigo: str,
+        dados: AlunoCreate
+    ):
+
+        aluno = (
+            db.query(Aluno)
+            .filter(Aluno.codigo == codigo)
+            .first()
+        )
+
+        if not aluno:
+            return None
+
+        aluno.nome = dados.nome
+        aluno.cpf = dados.cpf
+        aluno.telefone = dados.telefone
+        aluno.email = dados.email
+
+        aluno.data_inscricao = dados.data_inscricao
+        aluno.mensalidade = dados.mensalidade
+        aluno.tipo_plano = dados.tipo_plano
+
+        db.commit()
+        db.refresh(aluno)
+
+        return aluno
+
+    @staticmethod
+    def deletar(
+        db: Session,
+        codigo: str
+    ):
+
+        aluno = (
+            db.query(Aluno)
+            .filter(Aluno.codigo == codigo)
+            .first()
+        )
+
+        if not aluno:
+            return False
+
+        db.delete(aluno)
+        db.commit()
+
+        return True
+    
+    @staticmethod
+    def gerar_codigo(db: Session):
+
+        ultimo_aluno = (
+            db.query(Aluno)
+            .order_by(Aluno.id.desc())
+            .first()
+        )
+
+        if not ultimo_aluno:
+            return "001"
+
+        proximo = ultimo_aluno.id + 1
+
+        return str(proximo).zfill(3)
+
+==================================================
+ARQUIVO: app/schemas/aluno_schema.py
+==================================================
+from datetime import date
+
+from pydantic import EmailStr
+
+from pydantic import BaseModel
+
+from enum import Enum
+
+class TipoPlano(str, Enum):
+    DIARIO = "DIARIO"
+    MENSAL = "MENSAL"
+    TRIMESTRAL = "TRIMESTRAL"
+    SEMESTRAL = "SEMESTRAL"
+    ANUAL = "ANUAL"
+
+class AlunoCreate(BaseModel):
+    nome: str
+    cpf: str | None = None
+    telefone: str | None = None
+    email: EmailStr | None = None
+    data_inscricao: date
+    mensalidade: float
+    tipo_plano: TipoPlano
+
+class AlunoResponse(BaseModel):
+    id: int
+    codigo: str
+    nome: str
+    cpf: str | None = None
+    telefone: str | None = None
+    email: EmailStr | None = None
+    data_inscricao: date
+    mensalidade: float
+    tipo_plano: TipoPlano
+
+    class Config:
+        from_attributes = True
+
+==================================================
+ARQUIVO: app/schemas/dashboard_schema.py
+==================================================
+from pydantic import BaseModel
+
+
+class DashboardResponse(BaseModel):
+
+    alunos_ativos: int
+
+    mensalidades_abertas: int
+    mensalidades_atrasadas: int
+    vencendo_hoje: int
+
+    receita_recebida: float
+    receita_prevista: float
+
+    alunos_diario: int
+    alunos_mensal: int
+    alunos_trimestral: int
+    alunos_semestral: int
+    alunos_anual: int
+
+==================================================
+ARQUIVO: app/schemas/pagamento_schema.py
+==================================================
+from datetime import date
+
+from pydantic import BaseModel
+
+class PagamentoResponse(BaseModel):
+    id: int
+    aluno_id: int
+    competencia: str
+    data_vencimento: date
+    data_pagamento: date | None
+    pago: bool
+
+    class Config:
+        from_attributes = True
+
+==================================================
+ARQUIVO: app/schemas/relatorio_schema.py
+==================================================
+from pydantic import BaseModel
+
+
+class RelatorioAlunoResponse(BaseModel):
+
+    codigo: str
+
+    nome: str
+
+    competencia: str
+
+    status: str
+
+==================================================
+ARQUIVO: app/routes/dashboard_routes.py
+==================================================
+from fastapi import APIRouter
+from fastapi import Depends
+
+from sqlalchemy.orm import Session
+
+from app.database.dependencies import get_db
+
+from app.dao.dashboard_dao import DashboardDAO
+from app.schemas.dashboard_schema import DashboardResponse
+
+router = APIRouter(
+    prefix="/dashboard",
+    tags=["Dashboard"]
+)
+
+
+@router.get(
+    "/",
+    response_model=DashboardResponse
+)
+def dashboard(
+    db: Session = Depends(get_db)
+):
+
+    return DashboardDAO.obter_indicadores(db)
+
+==================================================
+ARQUIVO: app/routes/relatorio_routes.py
+==================================================
+from fastapi import APIRouter
+from fastapi import Depends
+
+from sqlalchemy.orm import Session
+
+from app.database.dependencies import get_db
+
+from app.dao.pagamento_dao import PagamentoDAO
+
+from app.services.pagamento_service import PagamentoService
+
+from app.schemas.relatorio_schema import (
+    RelatorioAlunoResponse
+)
+
+router = APIRouter(
+    prefix="/relatorio",
+    tags=["Relatório"]
+)
+
+
+@router.get(
+    "/alunos",
+    response_model=list[RelatorioAlunoResponse]
+)
+def relatorio_alunos(
+    db: Session = Depends(get_db)
+):
+
+    pagamentos = (
+        PagamentoDAO.listar_com_alunos(db)
+    )
+
+    resultado = []
+
+    for pagamento in pagamentos:
+
+        status = (
+            PagamentoService.calcular_status(
+                pagamento.data_vencimento,
+                pagamento.pago
+            )
+        )
+
+        resultado.append(
+            {
+                "codigo": pagamento.aluno.codigo,
+                "nome": pagamento.aluno.nome,
+                "competencia": pagamento.competencia,
+                "status": status
+            }
+        )
+
+    return resultado
+
+==================================================
+ARQUIVO: app/routes/aluno_routes.py
+==================================================
+from fastapi import APIRouter
+from fastapi import Depends
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+
+from app.database.dependencies import get_db
+
+from app.dao.aluno_dao import AlunoDAO
+
+from app.schemas.aluno_schema import (
+    AlunoCreate,
+    AlunoResponse
+)
+
+router = APIRouter(
+    prefix="/alunos",
+    tags=["Alunos"]
+)
+
+
+@router.post(
+    "/",
+    response_model=AlunoResponse
+)
+def criar_aluno(
+    aluno: AlunoCreate,
+    db: Session = Depends(get_db)
+):
+
+    return AlunoDAO.criar(db, aluno)
+
+
+@router.get(
+    "/",
+    response_model=list[AlunoResponse]
+)
+def listar_alunos(
+    db: Session = Depends(get_db)
+):
+
+    return AlunoDAO.listar(db)
+
+@router.get("/busca/{termo}")
+def buscar_aluno(
+    termo: str,
+    db: Session = Depends(get_db)
+):
+
+    return AlunoDAO.buscar(
+        db,
+        termo
+    )
+
+@router.put(
+    "/{codigo}",
+    response_model=AlunoResponse
+)
+def atualizar_aluno(
+    codigo: str,
+    aluno: AlunoCreate,
+    db: Session = Depends(get_db)
+):
+
+    aluno_atualizado = AlunoDAO.atualizar(
+        db,
+        codigo,
+        aluno
+    )
+
+    if not aluno_atualizado:
+        raise HTTPException(
+            status_code=404,
+            detail="Aluno não encontrado"
+        )
+
+    return aluno_atualizado
+
+
+@router.delete("/{codigo}")
+def deletar_aluno(
+    codigo: str,
+    db: Session = Depends(get_db)
+):
+
+    removido = AlunoDAO.deletar(
+        db,
+        codigo
+    )
+
+    if not removido:
+        raise HTTPException(
+            status_code=404,
+            detail="Aluno não encontrado"
+        )
+
+    return {
+        "message": "Aluno removido com sucesso"
+    }
+
+==================================================
+ARQUIVO: app/routes/pagamento_routes.py
+==================================================
+from fastapi import APIRouter
+from fastapi import Depends
+from fastapi import HTTPException
+
+from sqlalchemy.orm import Session
+
+from app.database.dependencies import get_db
+
+from app.dao.pagamento_dao import PagamentoDAO
+from app.dao.aluno_dao import AlunoDAO
+from app.services.pagamento_service import PagamentoService
+
+from app.schemas.pagamento_schema import (
+    PagamentoResponse
+)
+
+router = APIRouter(
+    prefix="/pagamentos",
+    tags=["Pagamentos"]
+)
+
+
+@router.get(
+    "/",
+    response_model=list[PagamentoResponse]
+)
+def listar_pagamentos(
+    db: Session = Depends(get_db)
+):
+
+    return PagamentoDAO.listar(db)
+
+
+@router.put(
+    "/pagar/{termo}",
+    response_model=PagamentoResponse
+)
+def pagar_mensalidade(
+    termo: str,
+    db: Session = Depends(get_db)
+):
+
+    aluno = AlunoDAO.buscar_unico(
+        db,
+        termo
+    )
+
+    if not aluno:
+        raise HTTPException(
+            status_code=404,
+            detail="Aluno não encontrado"
+        )
+
+    pagamento = (
+        PagamentoDAO.buscar_pendente_por_aluno(
+            db,
+            aluno.id
+        )
+    )
+
+    if not pagamento:
+        raise HTTPException(
+            status_code=404,
+            detail="Nenhuma mensalidade pendente encontrada"
+        )
+
+    return PagamentoDAO.pagar(
+        db,
+        pagamento
+    )
+
+
+@router.post(
+    "/gerar/{aluno_id}",
+    response_model=PagamentoResponse
+)
+def gerar_mensalidade(
+    termo: str,
+    db: Session = Depends(get_db)
+):
+
+    aluno = AlunoDAO.buscar_unico(
+        db,
+        termo
+    )
+
+    if not aluno:
+        raise HTTPException(
+            status_code=404,
+            detail="Aluno não encontrado"
+        )
+
+    pagamento_pendente = (
+        PagamentoDAO.buscar_pendente_por_aluno(
+            db,
+            aluno.id
+        )
+    )
+
+    if pagamento_pendente:
+        raise HTTPException(
+            status_code=400,
+            detail="Existe uma mensalidade pendente para este aluno"
+        )
+
+    ultimo_pagamento = (
+        PagamentoDAO.buscar_ultimo_pagamento(
+            db,
+            aluno.id
+        )
+    )
+
+    dados = (
+        PagamentoService
+        .gerar_dados_mensalidade(
+            aluno,
+            ultimo_pagamento
+        )
+    )
+
+    pagamento_existente = (
+        PagamentoDAO.buscar_por_aluno_competencia(
+            db,
+            aluno.id,
+            dados["competencia"]
+        )
+    )
+
+    if pagamento_existente:
+        raise HTTPException(
+            status_code=400,
+            detail="Já existe uma mensalidade para esta competência"
+        )
+
+    return PagamentoDAO.criar(
+        db,
+        aluno.id,
+        dados["competencia"],
+        dados["data_vencimento"]
+    )
+
+==================================================
+ARQUIVO: app/models/pagamento_model.py
+==================================================
+from sqlalchemy import Column, Integer, Date, Boolean, ForeignKey, String
+from sqlalchemy.orm import relationship
+
+from app.database.database import Base
+
+
+class Pagamento(Base):
+
+    __tablename__ = "pagamentos"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    aluno_id = Column(
+        Integer,
+        ForeignKey("alunos.id"),
+        nullable=False
+    )
+
+    data_vencimento = Column(Date, nullable=False)
+
+    data_pagamento = Column(Date, nullable=True)
+
+    pago = Column(Boolean, default=False)
+
+    competencia = Column(String(7), nullable=False)
+
+    aluno = relationship(
+        "Aluno",
+        back_populates="pagamentos"
+    )
+
+==================================================
+ARQUIVO: app/models/aluno_model.py
+==================================================
+from sqlalchemy import Column, Integer, String, Date, Float
+from sqlalchemy.orm import relationship
+
+from app.database.database import Base
+
+
+class Aluno(Base):
+
+    __tablename__ = "alunos"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    codigo = Column(String(3), unique=True, nullable=False)
+
+    nome = Column(String(100), nullable=False)
+
+    data_inscricao = Column(Date, nullable=False)
+
+    mensalidade = Column(Float, nullable=False)
+
+    tipo_plano = Column(String(20), nullable=False)
+
+    cpf = Column(
+        String(11),
+        unique=True,
+        nullable=False
+    )
+
+    telefone = Column(
+        String(11),
+        unique=True,
+        nullable=True
+    )
+    
+    email = Column(
+        String(255),
+        nullable=True
+    )
+
+    pagamentos = relationship(
+        "Pagamento",
+        back_populates="aluno",
+        cascade="all, delete-orphan"
+    )
+
+==================================================
+ARQUIVO: app/services/pagamento_service.py
+==================================================
+from datetime import date
+from dateutil.relativedelta import relativedelta
+
+from app.models.aluno_model import Aluno
+
+
+class PagamentoService:
+
+    PLANOS = {
+        "DIARIO": {"days": 1},
+        "MENSAL": {"months": 1},
+        "TRIMESTRAL": {"months": 3},
+        "SEMESTRAL": {"months": 6},
+        "ANUAL": {"years": 1}
+    }
+
+    @staticmethod
+    def calcular_status(
+        data_vencimento: date,
+        pago: bool
+    ):
+
+        if pago:
+            return "PAGO"
+
+        hoje = date.today()
+
+        dias = (data_vencimento - hoje).days
+
+        if dias < 0:
+            return "ATRASADO"
+
+        if dias <= 2:
+            return "VENCENDO"
+
+        return "PENDENTE"
+
+    @staticmethod
+    def gerar_dados_mensalidade(
+        aluno: Aluno,
+        ultimo_pagamento=None
+    ):
+
+        periodo = (
+            PagamentoService.PLANOS[
+                aluno.tipo_plano.upper()
+            ]
+        )
+
+        if ultimo_pagamento:
+            data_base = (
+                ultimo_pagamento
+                .data_vencimento
+            )
+        else:
+            data_base = (
+                aluno
+                .data_inscricao
+            )
+
+        data_vencimento = (
+            data_base +
+            relativedelta(**periodo)
+        )
+
+        competencia = (
+            f"{data_vencimento.month:02d}/{data_vencimento.year}"
+        )
+
+        return {
+            "competencia": competencia,
+            "data_vencimento": data_vencimento
+        }

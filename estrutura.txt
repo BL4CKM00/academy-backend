@@ -1,0 +1,31 @@
+.
+├── app
+│   ├── auth
+│   ├── controllers
+│   ├── dao
+│   │   ├── aluno_dao.py
+│   │   ├── dashboard_dao.py
+│   │   └── pagamento_dao.py
+│   ├── database
+│   │   ├── database.py
+│   │   └── dependencies.py
+│   ├── main.py
+│   ├── models
+│   │   ├── aluno_model.py
+│   │   └── pagamento_model.py
+│   ├── routes
+│   │   ├── aluno_routes.py
+│   │   ├── dashboard_routes.py
+│   │   ├── pagamento_routes.py
+│   │   └── relatorio_routes.py
+│   ├── schemas
+│   │   ├── aluno_schema.py
+│   │   ├── dashboard_schema.py
+│   │   ├── pagamento_schema.py
+│   │   └── relatorio_schema.py
+│   └── services
+│       └── pagamento_service.py
+├── estrutura.txt
+└── requirements.txt
+
+10 directories, 19 files
