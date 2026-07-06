@@ -34,6 +34,19 @@ class PagamentoDAO:
     ):
 
         return db.query(Pagamento).all()
+    
+    @staticmethod
+    def listar_pendentes(
+        db: Session
+    ):
+
+        return (
+            db.query(Pagamento)
+            .filter(
+                Pagamento.pago.is_(False)
+            )
+            .all()
+        )
 
     @staticmethod
     def marcar_como_pago(

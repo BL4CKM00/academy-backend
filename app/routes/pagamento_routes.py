@@ -9,6 +9,7 @@ from app.database.dependencies import get_db
 from app.dao.pagamento_dao import PagamentoDAO
 from app.dao.aluno_dao import AlunoDAO
 from app.services.pagamento_service import PagamentoService
+from app.services.notificacao_service import NotificacaoService
 
 from app.schemas.pagamento_schema import (
     PagamentoResponse
@@ -138,3 +139,16 @@ def gerar_mensalidade(
         dados["competencia"],
         dados["data_vencimento"]
     )
+
+@router.post("/testar-notificacoes")
+def testar_notificacoes(
+    db: Session = Depends(get_db)
+):
+
+    NotificacaoService.verificar_pagamentos(
+        db
+    )
+
+    return {
+        "message": "Notificações testadas." 
+    }

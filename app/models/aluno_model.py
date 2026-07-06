@@ -25,13 +25,13 @@ class Aluno(Base):
     cpf = Column(
         String(11),
         unique=True,
-        nullable=False
+        nullable=True
     )
 
     telefone = Column(
         String(11),
         unique=True,
-        nullable=True
+        nullable=False
     )
     
     email = Column(

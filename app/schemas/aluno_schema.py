@@ -16,7 +16,7 @@ class TipoPlano(str, Enum):
 class AlunoCreate(BaseModel):
     nome: str
     cpf: str | None = None
-    telefone: str | None = None
+    telefone: str
     email: EmailStr | None = None
     data_inscricao: date
     mensalidade: float
@@ -27,7 +27,7 @@ class AlunoResponse(BaseModel):
     codigo: str
     nome: str
     cpf: str | None = None
-    telefone: str | None = None
+    telefone: str
     email: EmailStr | None = None
     data_inscricao: date
     mensalidade: float
